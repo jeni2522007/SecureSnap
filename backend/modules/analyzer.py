@@ -17,11 +17,63 @@ import shutil
 import uuid
 from datetime import datetime, timezone
 
+from flask import current_app
+
 from modules import file_identity, metadata as metadata_module
 from modules.ai_classifier import check_metadata_consistency, classify_image
 from modules.forensics import copy_move, ela, noise, scoring, steganography
 
 ANALYSABLE_IMAGE_FORMATS = {"JPEG", "PNG", "WEBP", "BMP", "TIFF", "GIF"}
+
+# A generous ceiling, used when the application configuration is not
+# available (for example when a module is used directly from a script).
+DEFAULT_MAX_PIXELS = 50_000_000
+
+
+def _max_pixels():
+    """Return the configured ceiling on the number of pixels to decode."""
+    try:
+        return int(current_app.config.get("MAX_PIXEL_COUNT", DEFAULT_MAX_PIXELS))
+    except Exception:
+        return DEFAULT_MAX_PIXELS
+
+
+def check_pixel_budget(file_path):
+    """Reject an image that is too large to decode safely.
+
+    A file header can claim dimensions of a hundred thousand pixels on a
+    side, which would exhaust memory when the pixels are actually decoded.
+    The header is read only; the image itself is never loaded.
+    """
+    limit = _max_pixels()
+
+    try:
+        from PIL import Image
+
+        with Image.open(file_path) as image:
+            width, height = image.size
+    except Exception:
+        # Not a decodable image; the rest of the pipeline reports it.
+        return {"ok": True, "width": None, "height": None, "limit": limit}
+
+    pixels = int(width) * int(height)
+
+    if pixels > limit:
+        return {
+            "ok": False,
+            "width": width,
+            "height": height,
+            "pixels": pixels,
+            "limit": limit,
+            "reason": (
+                f"The image header declares {width} x {height} pixels "
+                f"({pixels:,}), which is beyond the {limit:,} pixel ceiling. "
+                "The file was not decoded."
+            ),
+        }
+
+    return {"ok": True, "width": width, "height": height, "pixels": pixels,
+            "limit": limit}
 
 
 def analyse_file(file_path, analysis_folder, original_filename=None,
@@ -42,6 +94,13 @@ def analyse_file(file_path, analysis_folder, original_filename=None,
         file_path, original_filename or os.path.basename(file_path)
     )
     format_info = identity["detected"]
+
+    report("Checking the image dimensions")
+    budget = check_pixel_budget(file_path)
+
+    if not budget["ok"]:
+        results = _oversized_result(identity, format_info, budget)
+        return _finalise(results)
 
     report("Fingerprinting file")
     entropy = file_identity.analyse_entropy(file_path)
@@ -140,6 +199,11 @@ def analyse_file(file_path, analysis_folder, original_filename=None,
         }
 
     report("Synthesising findings")
+    return _finalise(results)
+
+
+def _finalise(results):
+    """Score the findings and attach the verdict and the rule facts."""
     findings = scoring.build_findings(results)
     score_result = scoring.score(findings)
     verdict_result = scoring.verdict(score_result["score"], findings)
@@ -150,6 +214,43 @@ def analyse_file(file_path, analysis_folder, original_filename=None,
     results["summary"] = scoring.summarise(findings, score_result, verdict_result)
     results["facts"] = build_facts(results)
 
+    return results
+
+
+def _oversized_result(identity, format_info, budget):
+    """Build the result for a file that was refused before decoding."""
+    results = {
+        "engine_version": "2.0.0",
+        "analysed_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "identity": identity,
+        "format": format_info,
+        "entropy": {},
+        "metadata": {
+            "available": False,
+            "camera": {}, "timestamps": {}, "gps": {}, "software": [],
+            "xmp": {}, "iptc": {}, "image_properties": {}, "raw_tags": {},
+            "anomalies": [{
+                "severity": "MEDIUM",
+                "code": "DIMENSIONS_EXCEEDED",
+                "title": "Image dimensions exceed the decoding ceiling",
+                "explanation": budget["reason"],
+            }],
+        },
+        "jpeg": {"is_jpeg": False, "tables": []},
+        "ela": {"measurements": {}, "notes": []},
+        "copy_move": {"available": False, "detected": False, "regions": [],
+                      "reason": "The image was not decoded."},
+        "noise": {"available": False, "reason": "The image was not decoded."},
+        "resampling": {"available": False, "reason": "The image was not decoded."},
+        "steganography": {"available": False, "suspicious": False,
+                          "appended_payload": False,
+                          "reason": "The image was not decoded."},
+        "classification": {
+            "available": False, "predictions": [], "tags": [],
+            "top_confidence": 0.0, "consistency_warnings": [],
+            "reason": "The image was not decoded.",
+        },
+    }
     return results
 
 

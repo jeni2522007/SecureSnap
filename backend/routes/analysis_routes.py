@@ -6,6 +6,7 @@ import tempfile
 import uuid
 
 from flask import Blueprint, current_app, jsonify, request
+from werkzeug.utils import secure_filename
 
 from db import get_db, log_audit, transaction, utc_now
 from modules import analyzer, compare as compare_module
@@ -22,6 +23,19 @@ def analysis_artefact(filename):
     return send_from_directory(current_app.config["ANALYSIS_FOLDER"], filename)
 
 
+def _safe_name(filename, fallback="upload"):
+    """Reduce a client-supplied filename to a safe name on disk.
+
+    The name supplied in the multipart header is entirely under the control
+    of the client and may contain path separators or traversal sequences, so
+    it is never used to build a path directly.
+    """
+    cleaned = secure_filename(filename or "")
+    if not cleaned:
+        cleaned = fallback
+    return cleaned[:120]
+
+
 @analysis_bp.route("/api/analyze", methods=["POST"])
 def analyze():
     """Analyse a submitted file and optionally register it as evidence."""
@@ -32,7 +46,11 @@ def analyze():
     if uploaded.filename == "":
         return jsonify({"error": "No file was selected"}), 400
 
-    extension = os.path.splitext(uploaded.filename)[1].lower()
+    # The filename in the multipart header is chosen by the client, so it is
+    # never used to build a path. Only its extension is inspected.
+    safe_name = _safe_name(uploaded.filename)
+
+    extension = os.path.splitext(safe_name)[1].lower()
     if extension and extension.lstrip(".") not in current_app.config["ALLOWED_EXTENSIONS"]:
         return jsonify({
             "error": (
@@ -44,7 +62,7 @@ def analyze():
     work_dir = tempfile.mkdtemp(prefix="securesnap_")
 
     try:
-        work_path = os.path.join(work_dir, uploaded.filename)
+        work_path = os.path.join(work_dir, safe_name)
         uploaded.save(work_path)
 
         analysis_folder = current_app.config["ANALYSIS_FOLDER"]
@@ -82,15 +100,20 @@ def analyze():
 
         if request.form.get("save") == "true":
             response["evidence"] = _register_evidence(
-                uploaded.filename, work_path, results, file_fingerprints
+                safe_name, work_path, results, file_fingerprints
             )
 
         return jsonify(response), 200
 
-    except Exception as error:
+    except Exception:
         current_app.logger.exception("Analysis failed")
+        # The detail stays in the server log; the client is told only that
+        # the examination could not be completed.
         return jsonify({
-            "error": f"Analysis failed: {error}",
+            "error": (
+                "The examination could not be completed. Check the server log "
+                "for the reason."
+            ),
         }), 500
 
     finally:
@@ -103,7 +126,7 @@ def _register_evidence(original_filename, work_path, results, file_fingerprints)
     sealed_folder = current_app.config["SEALED_FOLDER"]
     key = ensure_key(current_app.config["KEY_FILE"])
 
-    unique_name = f"{uuid.uuid4().hex}_{os.path.basename(original_filename)}"
+    unique_name = f"{uuid.uuid4().hex}_{_safe_name(original_filename, 'evidence')}"
     stored_path = os.path.join(evidence_folder, unique_name)
     shutil.copy2(work_path, stored_path)
 
@@ -234,8 +257,8 @@ def compare():
     work_dir = tempfile.mkdtemp(prefix="securesnap_cmp_")
 
     try:
-        first_path = os.path.join(work_dir, "first_" + os.path.basename(first_file.filename))
-        second_path = os.path.join(work_dir, "second_" + os.path.basename(second_file.filename))
+        first_path = os.path.join(work_dir, "first_" + _safe_name(first_file.filename, "a.jpg"))
+        second_path = os.path.join(work_dir, "second_" + _safe_name(second_file.filename, "b.jpg"))
 
         first_file.save(first_path)
         second_file.save(second_path)
@@ -254,9 +277,14 @@ def compare():
 
         return jsonify({"status": "success", "comparison": outcome}), 200
 
-    except Exception as error:
+    except Exception:
         current_app.logger.exception("Comparison failed")
-        return jsonify({"error": f"Comparison failed: {error}"}), 500
+        return jsonify({
+            "error": (
+                "The comparison could not be completed. Check the server log "
+                "for the reason."
+            ),
+        }), 500
 
     finally:
         shutil.rmtree(work_dir, ignore_errors=True)

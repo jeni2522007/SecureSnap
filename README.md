@@ -258,19 +258,68 @@ The database and the working folders are created automatically on first run.
 .\.venv\Scripts\python.exe -m pytest tests -v
 ```
 
-**Current result: 82 tests passed.**
+**Current result: 97 tests passed.**
 
 The suite covers the rule language (lexing, parsing, precedence, evaluation,
 validation), file identification (magic bytes, renamed files, executables,
 polyglots, entropy), hashing and sealing (stability, tamper detection,
 authentication failure), the forensic techniques (error level analysis on an
 edited frame, clone detection, LSB embedding, appended payloads, metadata
-contradictions, scoring), and the full API (pages, analysis, registration,
-integrity verification, duplicates, rule management, reporting and comparison).
+contradictions, scoring), the full API (pages, analysis, registration,
+integrity verification, duplicates, rule management, reporting and comparison),
+and a dedicated security suite that guards against the weaknesses listed below.
 
 ---
 
-## 8. A worked example
+## 8. Security
+
+The application handles evidence, so it is hardened accordingly. Every item
+below has a regression test in `tests/test_security.py`.
+
+### Controls in place
+
+| Control | Detail |
+|---|---|
+| **Path traversal** | The filename in a multipart header is chosen entirely by the client, so it is never used to build a path. Every upload name is passed through `werkzeug.utils.secure_filename` before it touches the disk. |
+| **CSRF** | Every state-changing request must carry a session token issued when the page was served. Requests without it are refused with `403`. |
+| **Origin and Host checks** | A request whose `Origin` or `Host` names another machine is refused, so a web page on another site cannot drive the application. |
+| **Security headers** | `Content-Security-Policy` (no inline script, `frame-ancestors 'none'`), `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`, `Cross-Origin-Opener-Policy`, `Permissions-Policy`. |
+| **Session cookie** | `HttpOnly` and `SameSite=Strict`. |
+| **Debug mode off** | The Werkzeug interactive debugger allows arbitrary code execution, so it is off unless `SECURESNAP_DEBUG=1` is set explicitly. |
+| **Secrets** | The session key is generated randomly on first run and stored with owner-only permissions, or supplied through `SECURESNAP_SECRET_KEY`. No key is hard-coded. |
+| **Error handling** | Internal exceptions are logged on the server and reported to the browser as a generic message, so paths and tracebacks are never disclosed. |
+| **Resource limits** | Uploads are capped at 25 MB. Image headers declaring more than 50 million pixels are refused before the file is decoded, which closes the decompression-bomb route. |
+| **Dependency hygiene** | Pillow and cryptography are pinned to versions with no published advisories. |
+| **Port guard** | The application refuses to start if the port is already in use, so a stale copy cannot keep serving old code on the same address. |
+
+### Environment variables
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `SECURESNAP_SECRET_KEY` | random, stored in `data/secret.key` | Session signing key |
+| `SECURESNAP_DEBUG` | off | Enables the Werkzeug debugger. Leave off. |
+| `SECURESNAP_HOST` | `127.0.0.1` | Address to bind |
+| `SECURESNAP_PORT` | `5000` | Port to bind |
+| `SECURESNAP_ALLOWED_HOSTS` | `127.0.0.1,localhost` | Hosts permitted to make requests |
+| `SECURESNAP_DATA_DIR` | `./data` | Where evidence, keys and the database are kept |
+
+### Known limitations
+
+- **The evidence key is stored in plaintext** at `data/evidence.key`. This is
+  appropriate for a single-workstation tool, but the key must be moved to
+  removable media or a hardware token if the workstation itself may be seized.
+- **There is no user authentication.** The application is designed to run on a
+  workstation that the officer controls. Adding accounts and roles would be the
+  next step for any shared or networked deployment.
+- **The application is a development server.** It should be put behind a
+  production WSGI server with TLS before it is exposed to a network.
+- **The classifier downloads its model weights on first use.** For a sealed or
+  offline workstation, pre-seed the Torch model cache or run without the
+  classifier, which the pipeline handles gracefully.
+
+---
+
+## 9. A worked example
 
 1. Open **Analyse**, drop in a photograph.
 2. Leave *Register as evidence* ticked and enter the case reference.
@@ -287,7 +336,7 @@ this against the sealed copy.
 
 ---
 
-## 9. Limitations and responsible use
+## 10. Limitations and responsible use
 
 These limits are stated in the report itself, because they matter:
 
@@ -310,7 +359,7 @@ These limits are stated in the report itself, because they matter:
 
 ---
 
-## 10. Subject integration
+## 11. Subject integration
 
 | Subject | Implementation |
 |---|---|
@@ -324,7 +373,7 @@ These limits are stated in the report itself, because they matter:
 
 ---
 
-## 11. Developer
+## 12. Developer
 
 Developed as an academic mini-project, restructured into a working forensic
 tool for police evidence handling.

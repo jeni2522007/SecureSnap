@@ -52,6 +52,21 @@ class APITestCase(unittest.TestCase):
         self.client = self.app.test_client()
         self.image_path = os.path.join(self.temp, "sample.jpg")
         make_test_image(self.image_path, size=(320, 240))
+        self.csrf_token = self._read_csrf_token()
+
+    def _read_csrf_token(self):
+        """Load the session token that the application issues to the browser."""
+        response = self.client.get("/")
+        marker = 'name="csrf-token" content="'
+        start = response.get_data(as_text=True).find(marker)
+        if start == -1:
+            return ""
+        start += len(marker)
+        end = response.get_data(as_text=True).find('"', start)
+        return response.get_data(as_text=True)[start:end]
+
+    def _headers(self):
+        return {"X-CSRF-Token": self.csrf_token}
 
 
 class TestPages(APITestCase):
@@ -76,7 +91,8 @@ class TestPages(APITestCase):
 class TestAnalysis(APITestCase):
 
     def test_missing_file_is_rejected(self):
-        response = self.client.post("/api/analyze", data={}, content_type="multipart/form-data")
+        response = self.client.post("/api/analyze", data={}, content_type="multipart/form-data",
+                                      headers=self._headers())
         self.assertEqual(response.status_code, 400)
         self.assertIn("error", response.json)
 
@@ -85,6 +101,7 @@ class TestAnalysis(APITestCase):
             "/api/analyze",
             data={"image": (io.BytesIO(b"payload"), "payload.exe")},
             content_type="multipart/form-data",
+            headers=self._headers(),
         )
         self.assertEqual(response.status_code, 400)
 
@@ -96,6 +113,7 @@ class TestAnalysis(APITestCase):
             "/api/analyze",
             data={"image": (io.BytesIO(payload), "sample.jpg"), "save": "false"},
             content_type="multipart/form-data",
+            headers=self._headers(),
         )
 
         self.assertEqual(response.status_code, 200)
@@ -118,6 +136,7 @@ class TestAnalysis(APITestCase):
             "/api/analyze",
             data={"image": (io.BytesIO(payload), "sample.jpg")},
             content_type="multipart/form-data",
+            headers=self._headers(),
         )
 
         rules = response.json["rules"]
@@ -143,6 +162,7 @@ class TestEvidenceRegister(APITestCase):
                 "collected_by": "HC/1234",
             },
             content_type="multipart/form-data",
+            headers=self._headers(),
         )
 
     def test_evidence_can_be_registered(self):
@@ -167,7 +187,8 @@ class TestEvidenceRegister(APITestCase):
         registered = self._register("FIR 2026/0004")
         evidence_id = registered.json["evidence"]["id"]
 
-        response = self.client.post(f"/api/evidence/{evidence_id}/verify")
+        response = self.client.post(f"/api/evidence/{evidence_id}/verify",
+                                      headers=self._headers())
         self.assertEqual(response.status_code, 200)
         self.assertTrue(response.json["intact"])
 
@@ -182,7 +203,8 @@ class TestEvidenceRegister(APITestCase):
         with open(stored, "wb") as handle:
             handle.write(b"tampered content")
 
-        response = self.client.post(f"/api/evidence/{evidence_id}/verify")
+        response = self.client.post(f"/api/evidence/{evidence_id}/verify",
+                                      headers=self._headers())
         self.assertEqual(response.status_code, 200)
         self.assertFalse(response.json["intact"])
 
@@ -201,6 +223,7 @@ class TestEvidenceRegister(APITestCase):
         response = self.client.patch(
             f"/api/evidence/{evidence_id}",
             json={"title": "Updated description"},
+            headers=self._headers(),
         )
         self.assertEqual(response.status_code, 200)
 
@@ -230,7 +253,7 @@ class TestRuleManagement(APITestCase):
         self.assertGreater(response.json["count"], 10)
 
     def test_a_rule_can_be_created(self):
-        response = self.client.post("/api/rules", json={
+        response = self.client.post("/api/rules", headers=self._headers(), json={
             "name": "TestCondition",
             "condition": "ela.hot_block_ratio > 0.5",
             "action": "ESCALATE_TEST",
@@ -240,11 +263,11 @@ class TestRuleManagement(APITestCase):
         self.assertEqual(response.status_code, 201)
         rule_id = response.json["rule"]["id"]
 
-        delete = self.client.delete(f"/api/rules/{rule_id}")
+        delete = self.client.delete(f"/api/rules/{rule_id}", headers=self._headers())
         self.assertEqual(delete.status_code, 200)
 
     def test_an_invalid_rule_is_rejected(self):
-        response = self.client.post("/api/rules", json={
+        response = self.client.post("/api/rules", headers=self._headers(), json={
             "name": "Broken",
             "condition": "this is not a rule",
             "action": "NOPE",
@@ -252,7 +275,7 @@ class TestRuleManagement(APITestCase):
         self.assertEqual(response.status_code, 400)
 
     def test_rule_validation_endpoint(self):
-        response = self.client.post("/api/rules/validate", json={
+        response = self.client.post("/api/rules/validate", headers=self._headers(), json={
             "condition": "metadata.available == false",
         })
         self.assertEqual(response.status_code, 200)
@@ -262,7 +285,8 @@ class TestRuleManagement(APITestCase):
         listing = self.client.get("/api/rules").json
         rule_id = listing["rules"][0]["id"]
 
-        response = self.client.post(f"/api/rules/{rule_id}/toggle")
+        response = self.client.post(f"/api/rules/{rule_id}/toggle",
+                                      headers=self._headers())
         self.assertEqual(response.status_code, 200)
 
 
@@ -270,7 +294,8 @@ class TestComparison(APITestCase):
 
     def test_comparison_requires_two_files(self):
         response = self.client.post("/api/compare", data={},
-                                    content_type="multipart/form-data")
+                                    content_type="multipart/form-data",
+                                    headers=self._headers())
         self.assertEqual(response.status_code, 400)
 
     def test_two_images_can_be_compared(self):
@@ -284,6 +309,7 @@ class TestComparison(APITestCase):
                 "second": (io.BytesIO(payload), "b.jpg"),
             },
             content_type="multipart/form-data",
+            headers=self._headers(),
         )
 
         self.assertEqual(response.status_code, 200)

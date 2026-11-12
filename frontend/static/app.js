@@ -8,8 +8,24 @@ const SS = {};
 
 /* ---------- HTTP ---------- */
 
+SS.csrfToken = function () {
+    const meta = document.querySelector('meta[name="csrf-token"]');
+    return meta ? meta.getAttribute("content") : "";
+};
+
 SS.request = async function (url, options = {}) {
-    const response = await fetch(url, options);
+    const settings = Object.assign({}, options);
+    const method = (settings.method || "GET").toUpperCase();
+
+    // Every state-changing request carries the session token, so a page on
+    // another site cannot drive this application.
+    if (method !== "GET" && method !== "HEAD" && method !== "OPTIONS") {
+        settings.headers = Object.assign({}, settings.headers, {
+            "X-CSRF-Token": SS.csrfToken()
+        });
+    }
+
+    const response = await fetch(url, settings);
     let payload = null;
 
     const contentType = response.headers.get("content-type") || "";

@@ -1,0 +1,280 @@
+{% extends "base.html" %}
+{% block title %}Policy Rules{% endblock %}
+
+{% block content %}
+
+<div class="page-head">
+    <h1>Policy rule set</h1>
+    <p>
+        The forensic checks that are applied to every submission. Rules are written
+        in a small language that is parsed and validated before it runs, so a broken
+        rule is reported rather than silently weakening an examination.
+    </p>
+</div>
+
+<div class="grid grid-side">
+    <div>
+        <div class="card">
+            <div class="card-head">
+                <h2>Active rules</h2>
+                <button class="btn btn-primary btn-sm" id="newBtn">New rule</button>
+            </div>
+            <div class="card-body tight">
+                <div class="rule-list" id="ruleList">
+                    <p style="color:var(--ink-faint)">Loading…</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div>
+        <div class="card">
+            <div class="card-head"><h3 id="formTitle">Rule editor</h3></div>
+            <div class="card-body">
+                <input type="hidden" id="ruleId">
+
+                <label class="field">
+                    <span class="field-label">Rule name *</span>
+                    <input type="text" id="ruleName" placeholder="e.g. GpsAbsent">
+                </label>
+
+                <label class="field">
+                    <span class="field-label">Action *</span>
+                    <input type="text" id="ruleAction" placeholder="e.g. ESCALATE_UNVERIFIED_SOURCE">
+                    <span class="field-hint">The instruction shown to the officer when this rule fires.</span>
+                </label>
+
+                <label class="field">
+                    <span class="field-label">Severity</span>
+                    <select id="ruleSeverity">
+                        <option value="CRITICAL">Critical</option>
+                        <option value="HIGH">High</option>
+                        <option value="MEDIUM" selected>Medium</option>
+                        <option value="LOW">Low</option>
+                        <option value="INFO">Informational</option>
+                    </select>
+                </label>
+
+                <label class="field">
+                    <span class="field-label">Condition *</span>
+                    <textarea id="ruleCondition" class="code" rows="5"></textarea>
+                    <span class="field-hint">
+                        Examples: <code>metadata.available == false</code> ·
+                        <code>ela.hot_block_ratio &gt; 0.12 AND metadata.gps.latitude EXISTS</code> ·
+                        <code>format.category == "executable"</code>
+                    </span>
+                </label>
+
+                <div id="validationHolder" class="status-line"></div>
+
+                <label class="field">
+                    <span class="field-label">Explanation shown to the officer</span>
+                    <textarea id="ruleDescription" rows="3"></textarea>
+                </label>
+
+                <div class="btn-row">
+                    <button class="btn btn-primary" id="saveBtn">Save rule</button>
+                    <button class="btn btn-ghost" id="checkBtn">Check syntax</button>
+                    <button class="btn btn-ghost" id="cancelBtn">Clear</button>
+                </div>
+            </div>
+        </div>
+
+        <div class="card" style="margin-top:18px">
+            <div class="card-head"><h3>Language reference</h3></div>
+            <div class="card-body tight">
+                <dl class="dl">
+                    <div class="dl-row"><dt>Comparison</dt><dd class="mono">== != &gt; &gt;= &lt; &lt;=</dd></div>
+                    <div class="dl-row"><dt>Logic</dt><dd class="mono">AND · OR · NOT</dd></div>
+                    <div class="dl-row"><dt>Existence</dt><dd class="mono">path EXISTS</dd></div>
+                    <div class="dl-row"><dt>Membership</dt><dd class="mono">path CONTAINS value</dd></div>
+                    <div class="dl-row"><dt>Pattern</dt><dd class="mono">path MATCHES "regex"</dd></div>
+                    <div class="dl-row"><dt>Literals</dt><dd class="mono">true · false · 42 · "text"</dd></div>
+                </dl>
+                <p class="field-hint" style="margin-top:12px">
+                    Field names are namespaced. The main groups are
+                    <code>format</code>, <code>identity</code>, <code>metadata</code>,
+                    <code>ela</code>, <code>copy_move</code>, <code>noise</code>,
+                    <code>resampling</code>, <code>steganography</code>,
+                    <code>jpeg</code>, <code>classification</code> and <code>risk</code>.
+                </p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+document.addEventListener("DOMContentLoaded", () => {
+    const list = document.getElementById("ruleList");
+    const ruleId = document.getElementById("ruleId");
+    const nameField = document.getElementById("ruleName");
+    const actionField = document.getElementById("ruleAction");
+    const severityField = document.getElementById("ruleSeverity");
+    const conditionField = document.getElementById("ruleCondition");
+    const descriptionField = document.getElementById("ruleDescription");
+    const validation = document.getElementById("validationHolder");
+    const formTitle = document.getElementById("formTitle");
+
+    async function load() {
+        try {
+            const data = await SS.request("/api/rules");
+            SS.clear(list);
+
+            if (!data.rules.length) {
+                list.appendChild(SS.el("p", null, "No rules are configured."));
+                list.lastChild.style.color = "var(--ink-faint)";
+                return;
+            }
+
+            data.rules.forEach((rule) => {
+                const node = SS.el("div", "rule-item" + (rule.enabled ? "" : " disabled"));
+
+                const badge = SS.badge(rule.severity, rule.severity);
+                badge.style.marginTop = "2px";
+
+                const body = SS.el("div");
+                body.appendChild(SS.el("div", "ri-name", rule.name + (rule.builtin ? " · built-in" : "")));
+                body.appendChild(SS.el("div", "ri-cond", rule.condition));
+                body.appendChild(SS.el("div", "ri-action mono", rule.action));
+                if (rule.description) {
+                    body.appendChild(SS.el("div", "ri-desc", rule.description));
+                }
+
+                const actions = SS.el("div", "ri-actions");
+
+                const toggle = SS.el("label", "switch");
+                const toggleInput = SS.el("input");
+                toggleInput.type = "checkbox";
+                toggleInput.checked = !!rule.enabled;
+                const slider = SS.el("span", "slider");
+                toggle.append(toggleInput, slider);
+                toggleInput.addEventListener("change", async () => {
+                    try {
+                        await SS.request("/api/rules/" + rule.id + "/toggle", { method: "POST" });
+                        load();
+                    } catch (error) {
+                        SS.toast(error.message, "error");
+                    }
+                });
+                actions.appendChild(toggle);
+
+                const edit = SS.el("button", "btn btn-ghost btn-sm", "Edit");
+                edit.addEventListener("click", () => fillForm(rule));
+                actions.appendChild(edit);
+
+                if (!rule.builtin) {
+                    const remove = SS.el("button", "btn btn-ghost btn-sm", "Delete");
+                    remove.addEventListener("click", async () => {
+                        if (!confirm("Remove the rule '" + rule.name + "'?")) return;
+                        try {
+                            await SS.request("/api/rules/" + rule.id, { method: "DELETE" });
+                            SS.toast("Rule removed.", "success");
+                            load();
+                        } catch (error) {
+                            SS.toast(error.message, "error");
+                        }
+                    });
+                    actions.appendChild(remove);
+                }
+
+                node.append(badge, body, actions);
+                list.appendChild(node);
+            });
+
+        } catch (error) {
+            SS.toast(error.message, "error");
+        }
+    }
+
+    function fillForm(rule) {
+        ruleId.value = rule.id;
+        nameField.value = rule.name;
+        actionField.value = rule.action;
+        severityField.value = rule.severity;
+        conditionField.value = rule.condition;
+        descriptionField.value = rule.description || "";
+        formTitle.textContent = "Edit rule — " + rule.name;
+        validation.className = "status-line";
+        validation.textContent = "";
+        window.scrollTo({ top: 0, behavior: "smooth" });
+    }
+
+    function clearForm() {
+        ruleId.value = "";
+        nameField.value = "";
+        actionField.value = "";
+        severityField.value = "MEDIUM";
+        conditionField.value = "";
+        descriptionField.value = "";
+        formTitle.textContent = "Rule editor";
+        validation.className = "status-line";
+        validation.textContent = "";
+    }
+
+    async function checkSyntax() {
+        const condition = conditionField.value.trim();
+        if (!condition) {
+            validation.className = "status-line error";
+            validation.textContent = "Enter a condition first.";
+            return;
+        }
+
+        try {
+            const data = await SS.postJSON("/api/rules/validate", { condition });
+            if (data.valid) {
+                validation.className = "status-line success";
+                validation.textContent = "Valid — parses as: " + data.parsed.condition;
+            } else {
+                validation.className = "status-line error";
+                validation.textContent = data.error;
+            }
+        } catch (error) {
+            validation.className = "status-line error";
+            validation.textContent = error.message;
+        }
+    }
+
+    document.getElementById("checkBtn").addEventListener("click", checkSyntax);
+    conditionField.addEventListener("blur", checkSyntax);
+    document.getElementById("cancelBtn").addEventListener("click", clearForm);
+    document.getElementById("newBtn").addEventListener("click", () => {
+        clearForm();
+        nameField.focus();
+    });
+
+    document.getElementById("saveBtn").addEventListener("click", async () => {
+        const payload = {
+            name: nameField.value.trim(),
+            action: actionField.value.trim(),
+            severity: severityField.value,
+            condition: conditionField.value.trim(),
+            description: descriptionField.value.trim()
+        };
+
+        if (!payload.name || !payload.action || !payload.condition) {
+            validation.className = "status-line error";
+            validation.textContent = "A name, an action and a condition are all required.";
+            return;
+        }
+
+        try {
+            if (ruleId.value) {
+                await SS.putJSON("/api/rules/" + ruleId.value, payload);
+                SS.toast("Rule updated.", "success");
+            } else {
+                await SS.postJSON("/api/rules", payload);
+                SS.toast("Rule added to the policy set.", "success");
+            }
+            clearForm();
+            load();
+        } catch (error) {
+            validation.className = "status-line error";
+            validation.textContent = error.message;
+        }
+    });
+
+    load();
+});
+</script>
+
+{% endblock %}

@@ -1,0 +1,207 @@
+{% extends "base.html" %}
+{% block title %}Evidence Register{% endblock %}
+
+{% block content %}
+
+<div class="page-head" style="display:flex;justify-content:space-between;align-items:flex-start;gap:20px;flex-wrap:wrap">
+    <div>
+        <h1>Evidence register</h1>
+        <p>
+            Every item examined on this workstation, with the fingerprints taken at
+            intake. Re-verification proves an item has not been altered since it
+            was received.
+        </p>
+    </div>
+    <div class="btn-row">
+        <button class="btn btn-ghost" id="duplicatesBtn">Duplicate report</button>
+        <a class="btn btn-accent" href="/api/export/evidence.csv">Export register (CSV)</a>
+    </div>
+</div>
+
+<div class="card" style="margin-bottom:18px">
+    <div class="card-body tight">
+        <div class="grid grid-4" style="align-items:end">
+            <label class="field" style="margin:0">
+                <span class="field-label">Search</span>
+                <input type="text" id="search" placeholder="Title, description, filename or hash">
+            </label>
+            <label class="field" style="margin:0">
+                <span class="field-label">Case reference</span>
+                <input type="text" id="caseFilter" placeholder="e.g. FIR 2026/0412">
+            </label>
+            <label class="field" style="margin:0">
+                <span class="field-label">Risk band</span>
+                <select id="verdictFilter">
+                    <option value="">All items</option>
+                    <option value="LIKELY ALTERED">Likely altered</option>
+                    <option value="INDICATORS">Indicators present</option>
+                    <option value="NO CONTRADICTIONS">No contradictions</option>
+                    <option value="CONSISTENT">Consistent with capture</option>
+                </select>
+            </label>
+            <div class="btn-row">
+                <button class="btn btn-primary" id="applyBtn">Apply</button>
+                <button class="btn btn-ghost" id="clearBtn">Clear</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-head">
+        <h2 id="resultCount">Register</h2>
+        <button class="btn btn-ghost btn-sm" id="refreshBtn">Refresh</button>
+    </div>
+    <div class="card-body tight">
+        <div class="table-wrap">
+            <table>
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>Case</th>
+                        <th>Item</th>
+                        <th>Format</th>
+                        <th>Risk</th>
+                        <th>Verdict</th>
+                        <th>SHA-256</th>
+                        <th>Registered</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody id="registerBody">
+                    <tr><td colspan="9" style="color:var(--ink-faint)">Loading…</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<script>
+document.addEventListener("DOMContentLoaded", () => {
+    const body = document.getElementById("registerBody");
+    const countLabel = document.getElementById("resultCount");
+
+    async function load() {
+        const params = new URLSearchParams();
+        const search = document.getElementById("search").value.trim();
+        const caseRef = document.getElementById("caseFilter").value.trim();
+        const verdict = document.getElementById("verdictFilter").value;
+
+        if (search) params.set("q", search);
+        if (caseRef) params.set("case_ref", caseRef);
+        if (verdict) params.set("verdict", verdict);
+
+        SS.clear(body);
+
+        try {
+            const data = await SS.request("/api/evidence?" + params.toString());
+            countLabel.textContent = "Register — " + data.count + " item" + (data.count === 1 ? "" : "s");
+
+            if (!data.items.length) {
+                const row = body.insertRow();
+                const cell = row.insertCell();
+                cell.colSpan = 9;
+                cell.style.color = "var(--ink-faint)";
+                cell.textContent = "No items match the current filters.";
+                return;
+            }
+
+            data.items.forEach((item) => {
+                const row = body.insertRow();
+
+                row.insertCell().innerHTML = `<span class="mono">${item.id}</span>`;
+
+                const caseCell = row.insertCell();
+                caseCell.innerHTML = `<span class="mono">${SS.escape(item.case_ref)}</span>`;
+                if (item.exhibit_ref) {
+                    caseCell.innerHTML += `<br><span style="font-size:11.5px;color:var(--ink-faint)">${SS.escape(item.exhibit_ref)}</span>`;
+                }
+
+                const titleCell = row.insertCell();
+                titleCell.textContent = item.title;
+                if (item.original_filename) {
+                    const sub = SS.el("div", null, item.original_filename);
+                    sub.style.cssText = "font-size:11.5px;color:var(--ink-faint)";
+                    titleCell.appendChild(sub);
+                }
+
+                row.insertCell().textContent = item.detected_format || "-";
+
+                const risk = row.insertCell();
+                risk.className = "tnum nowrap";
+                risk.textContent = item.risk_score !== null ? item.risk_score : "-";
+
+                const verdict = row.insertCell();
+                const score = item.risk_score || 0;
+                verdict.appendChild(SS.badge(
+                    score >= 60 ? "High" : score >= 35 ? "Review" : "Low",
+                    score >= 60 ? "critical" : score >= 35 ? "medium" : "good"
+                ));
+
+                const hash = row.insertCell();
+                const hashCode = SS.el("span", "mono", SS.shortHash(item.sha256));
+                hash.appendChild(hashCode);
+
+                const when = row.insertCell();
+                when.className = "nowrap";
+                when.textContent = SS.dateTime(item.created_at);
+
+                const actions = row.insertCell();
+                actions.className = "nowrap";
+
+                const open = SS.el("a", "btn btn-ghost btn-sm", "Open");
+                open.href = "/evidence/" + item.id;
+                actions.appendChild(open);
+
+                const report = SS.el("a", "btn btn-ghost btn-sm", "Report");
+                report.href = "/report/" + item.id;
+                report.style.marginLeft = "6px";
+                actions.appendChild(report);
+            });
+
+        } catch (error) {
+            const row = body.insertRow();
+            const cell = row.insertCell();
+            cell.colSpan = 9;
+            cell.style.color = "var(--critical)";
+            cell.textContent = error.message;
+        }
+    }
+
+    document.getElementById("applyBtn").addEventListener("click", load);
+    document.getElementById("refreshBtn").addEventListener("click", load);
+    document.getElementById("clearBtn").addEventListener("click", () => {
+        document.getElementById("search").value = "";
+        document.getElementById("caseFilter").value = "";
+        document.getElementById("verdictFilter").value = "";
+        load();
+    });
+
+    document.getElementById("search").addEventListener("keydown", (event) => {
+        if (event.key === "Enter") load();
+    });
+
+    document.getElementById("duplicatesBtn").addEventListener("click", async () => {
+        try {
+            const data = await SS.request("/api/evidence/duplicates");
+
+            if (!data.count) {
+                SS.toast("No duplicate files were found in the register.", "success");
+                return;
+            }
+
+            const lines = data.groups.map((group) =>
+                `${group.filename} appears ${group.copies} times (cases: ${group.case_refs.join(", ")})`
+            );
+            SS.toast(lines.join(" | "), "error");
+
+        } catch (error) {
+            SS.toast(error.message, "error");
+        }
+    });
+
+    load();
+});
+</script>
+
+{% endblock %}

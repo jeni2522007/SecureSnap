@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Media Authenticity Report — {% if evidence %}Evidence {{ evidence.id }}{% else %}Not found{% endif %}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+
+<div style="max-width:900px;margin:0 auto;padding:20px 16px;">
+    <div class="btn-row no-print" style="margin-bottom:16px">
+        <a class="btn btn-ghost" href="/evidence/{{ evidence_id }}">Back to the item</a>
+        <button class="btn btn-primary" onclick="window.print()">Print / save as PDF</button>
+        <a class="btn btn-ghost" href="/api/report/{{ evidence_id }}/json">Export JSON</a>
+    </div>
+</div>
+
+<div class="report-sheet">
+
+    {% if not evidence %}
+        <div class="report-head">
+            <div class="rh-org">SecureSnap Forensic Workbench</div>
+            <h1>Evidence item not found</h1>
+            <p class="rh-sub">No item with identifier {{ evidence_id }} exists in the register.</p>
+        </div>
+    {% else %}
+
+    <div class="report-head">
+        <div class="rh-org">SecureSnap Forensic Workbench</div>
+        <h1>Media Authenticity Examination Report</h1>
+        <div class="rh-sub">
+            Report reference SS/{{ "%04d" % evidence.id }} &middot;
+            Case {{ evidence.case_ref }}{% if evidence.exhibit_ref %} &middot; Exhibit {{ evidence.exhibit_ref }}{% endif %} &middot;
+            Generated {{ generated_at }}
+        </div>
+    </div>
+
+    <!-- 1. Summary -->
+    <div class="report-section">
+        <h2>1. Summary of opinion</h2>
+
+        {% set summary = analysis.summary if analysis and analysis.summary else None %}
+        {% set score = evidence.risk_score if evidence.risk_score is not none else 0 %}
+
+        <div style="border:1px solid var(--line);border-left:4px solid {% if score >= 60 %}var(--critical){% elif score >= 35 %}var(--high){% elif score >= 15 %}var(--medium){% else %}var(--good){% endif %};border-radius:6px;padding:14px 16px;background:#fafbfd">
+            <div style="display:flex;align-items:baseline;gap:12px;flex-wrap:wrap">
+                <strong style="font-size:15px;color:var(--navy-900)">{{ evidence.verdict }}</strong>
+                <span class="badge badge-neutral">Risk score {{ score }} / 100</span>
+                {% if summary %}<span class="badge badge-neutral">{{ summary.risk_band }} band</span>{% endif %}
+            </div>
+            {% if summary %}
+            <p style="margin:8px 0 0;font-size:12.5px;color:var(--ink-soft)">{{ summary.reasoning }}</p>
+            {% endif %}
+        </div>
+
+        {% if summary %}
+        <table class="report-table" style="margin-top:14px">
+            <tr>
+                <th>Total findings</th>
+                <td>{{ summary.finding_count }}</td>
+                <th>Critical findings</th>
+                <td>{{ summary.critical_count }}</td>
+            </tr>
+            <tr>
+                <th>High severity findings</th>
+                <td>{{ summary.high_count }}</td>
+                <th>Engine version</th>
+                <td>{{ analysis.engine_version if analysis else "2.0.0" }}</td>
+            </tr>
+        </table>
+        {% endif %}
+    </div>
+
+    <!-- 2. Item particulars -->
+    <div class="report-section">
+        <h2>2. Particulars of the item examined</h2>
+        <table class="report-table">
+            <tr><th>Register identifier</th><td>{{ evidence.id }}</td></tr>
+            <tr><th>Case reference</th><td>{{ evidence.case_ref }}</td></tr>
+            <tr><th>Exhibit reference</th><td>{{ evidence.exhibit_ref or "Not assigned" }}</td></tr>
+            <tr><th>Description</th><td>{{ evidence.title }}</td></tr>
+            <tr><th>Narrative of seizure</th><td>{{ evidence.description or "Not recorded" }}</td></tr>
+            <tr><th>Source</th><td>{{ evidence.source or "Not recorded" }}</td></tr>
+            <tr><th>Collected by</th><td>{{ evidence.collected_by or "Not recorded" }}</td></tr>
+            <tr><th>Date and time of collection</th><td>{{ evidence.collected_at or "Not recorded" }}</td></tr>
+            <tr><th>Original filename</th><td>{{ evidence.original_filename }}</td></tr>
+            <tr><th>Detected format</th><td>{{ evidence.detected_format }}</td></tr>
+            <tr><th>Size</th><td>{{ evidence.size_bytes }} bytes</td></tr>
+            <tr><th>Date registered</th><td>{{ evidence.created_at }}</td></tr>
+        </table>
+    </div>
+
+    <!-- 3. Integrity -->
+    <div class="report-section">
+        <h2>3. Integrity of the item</h2>
+        <p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 10px">
+            The following digests were calculated at the moment of receipt. A later
+            re-verification of the item must reproduce them exactly. A sealed copy
+            is held under AES-128-CBC with an HMAC-SHA256 authentication tag.
+        </p>
+        <table class="report-table">
+            <tr>
+                <th>SHA-256</th>
+                <td class="mono" style="font-weight:400">{{ evidence.sha256 }}</td>
+            </tr>
+            <tr>
+                <th>SHA-512</th>
+                <td class="mono" style="font-weight:400">{{ evidence.sha512 or "Not recorded" }}</td>
+            </tr>
+        </table>
+    </div>
+
+    <!-- 4. Findings -->
+    <div class="report-section">
+        <h2>4. Findings</h2>
+        {% if analysis and analysis.findings %}
+            {% for finding in analysis.findings %}
+            <div class="report-finding">
+                <div class="rf-meta" style="color:{% if finding.severity == 'CRITICAL' %}var(--critical){% elif finding.severity == 'HIGH' %}var(--high){% elif finding.severity == 'MEDIUM' %}var(--medium){% elif finding.severity == 'LOW' %}var(--low){% else %}var(--info){% endif %}">
+                    {{ finding.severity }}{% if finding.source %} &middot; {{ finding.source }}{% endif %}
+                </div>
+                <h4>{{ finding.title }}</h4>
+                <p>{{ finding.explanation }}</p>
+            </div>
+            {% endfor %}
+        {% else %}
+            <p style="font-size:12.5px;color:var(--ink-soft)">
+                No findings were recorded against this item. The absence of a finding
+                is not, in itself, proof of authenticity.
+            </p>
+        {% endif %}
+    </div>
+
+    <!-- 5. Metadata -->
+    {% if analysis and analysis.metadata %}
+    <div class="report-section">
+        <h2>5. Embedded metadata</h2>
+        {% set camera = analysis.metadata.camera or {} %}
+        {% set timestamps = analysis.metadata.timestamps or {} %}
+        {% set gps = analysis.metadata.gps or {} %}
+        <table class="report-table">
+            <tr><th>Camera make</th><td>{{ camera.make or "Not recorded" }}</td></tr>
+            <tr><th>Camera model</th><td>{{ camera.model or "Not recorded" }}</td></tr>
+            <tr><th>Lens</th><td>{{ camera.lens or "Not recorded" }}</td></tr>
+            <tr><th>Body serial number</th><td>{{ camera.body_serial or "Not recorded" }}</td></tr>
+            <tr><th>Software recorded</th><td>{{ camera.software or "Not recorded" }}</td></tr>
+            <tr><th>Date and time of capture</th><td>{{ timestamps.datetime_original or "Not recorded" }}</td></tr>
+            <tr><th>Date and time of modification</th><td>{{ timestamps.datetime or "Not recorded" }}</td></tr>
+            <tr>
+                <th>Geographic position</th>
+                <td>
+                    {% if gps.latitude is defined and gps.latitude %}
+                        {{ gps.latitude }}, {{ gps.longitude }}
+                        {% if gps.altitude_metres %} &middot; {{ gps.altitude_metres }} m{% endif %}
+                    {% else %}
+                        Not recorded
+                    {% endif %}
+                </td>
+            </tr>
+        </table>
+    </div>
+    {% endif %}
+
+    <!-- 6. Policy rules -->
+    {% if analysis and analysis.rules and analysis.rules.triggered %}
+    <div class="report-section">
+        <h2>6. Policy rules triggered</h2>
+        <p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 10px">
+            {{ analysis.rules.triggered_count }} of {{ analysis.rules.evaluated }}
+            configured rules matched this item.
+        </p>
+        <table class="report-table">
+            {% for rule in analysis.rules.triggered %}
+            <tr>
+                <th style="width:26%">{{ rule.name }}<br>
+                    <span style="font-weight:400;font-size:11px;color:var(--ink-faint)">{{ rule.severity }}</span>
+                </th>
+                <td style="font-weight:400">
+                    <span class="mono" style="font-size:12px">{{ rule.action }}</span>
+                    {% if rule.description %}<br><span style="font-size:12px;color:var(--ink-soft)">{{ rule.description }}</span>{% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+        </table>
+    </div>
+    {% endif %}
+
+    <!-- 7. Method -->
+    <div class="report-section">
+        <h2>7. Method of examination</h2>
+        <p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 10px">
+            The following independent tests were applied to the item.
+        </p>
+        <table class="report-table">
+            <tr>
+                <th>File identity</th>
+                <td style="font-weight:400">Magic-byte signature detection, comparison of the
+                    claimed extension against the real container, and a search for embedded
+                    secondary file structures.</td>
+            </tr>
+            <tr>
+                <th>Metadata</th>
+                <td style="font-weight:400">Extraction of EXIF, XMP and IPTC data, followed by
+                    internal cross-checking of capture time against modification time, camera
+                    serial against make and model, and recorded dimensions against stored pixels.</td>
+            </tr>
+            <tr>
+                <th>Error level analysis</th>
+                <td style="font-weight:400">Re-compression at a fixed quality factor and
+                    computation of the residual, measured block by block across the JPEG grid.</td>
+            </tr>
+            <tr>
+                <th>Copy-move detection</th>
+                <td style="font-weight:400">Perceptual DCT hashing of every block, with
+                    matching against neighbouring blocks to locate duplicated regions.</td>
+            </tr>
+            <tr>
+                <th>Noise and splicing</th>
+                <td style="font-weight:400">High-pass residual analysis of the frame, with
+                    measurement of noise discontinuity across block boundaries.</td>
+            </tr>
+            <tr>
+                <th>Resampling</th>
+                <td style="font-weight:400">Spectral analysis of the image to detect the
+                    periodic signature left by interpolation, and the loss of high-frequency
+                    energy caused by enlargement.</td>
+            </tr>
+            <tr>
+                <th>Steganography</th>
+                <td style="font-weight:400">Chi-square analysis of the least significant bit
+                    plane of each colour channel, and a check for data appended beyond the
+                    end of the image stream.</td>
+            </tr>
+            <tr>
+                <th>Content</th>
+                <td style="font-weight:400">Classification of the scene content, cross-checked
+                    against the recorded metadata for contradiction.</td>
+            </tr>
+        </table>
+    </div>
+
+    <!-- 8. Declaration -->
+    <div class="declaration">
+        <strong style="color:var(--navy-800)">Qualification and limitations</strong>
+        <p style="margin:8px 0 0">
+            This report records the output of an automated analytical process. Each
+            finding is an indicator that warrants investigation; none of them is
+            proof of manipulation on its own. Conversely, the absence of a finding
+            does not establish that an item is authentic. The results depend on the
+            item as received: an image that has been re-encoded, re-saved or
+            transmitted through a messaging platform will have lost some of the
+            characteristics that these tests look for, and that loss should not be
+            read as evidence of innocence.
+        </p>
+        <p style="margin:8px 0 0">
+            The examination was carried out on a standalone workstation. The item
+            was fingerprinted with SHA-256 and SHA-512 at receipt and a sealed copy
+            was retained. No data was transmitted off the machine.
+        </p>
+    </div>
+
+    <div class="report-sign">
+        <div class="line">
+            Examining officer<br>
+            Name, rank and signature
+        </div>
+        <div class="line">
+            Countersigned<br>
+            Name, rank and signature
+        </div>
+    </div>
+
+    {% endif %}
+</div>
+
+</body>
+</html>

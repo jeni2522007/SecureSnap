@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}SecureSnap{% endblock %} | SecureSnap Forensic Workbench</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>&#128737;</text></svg>">
+</head>
+<body>
+
+<header class="topbar">
+    <div class="topbar-inner">
+        <a class="brand" href="/">
+            <span class="brand-mark">SS</span>
+            <span class="brand-text">
+                <strong>SecureSnap</strong>
+                <small>Media Authenticity &amp; Forensic Workbench</small>
+            </span>
+        </a>
+
+        <nav class="nav">
+            <a href="/">Dashboard</a>
+            <a href="/analyze">Analyse</a>
+            <a href="/compare">Compare</a>
+            <a href="/evidence">Evidence Register</a>
+            <a href="/rules">Policy Rules</a>
+        </nav>
+
+        <div class="topbar-status">
+            <span class="dot"></span> Local workstation
+        </div>
+    </div>
+</header>
+
+<main class="page">
+    {% block content %}{% endblock %}
+</main>
+
+<footer class="footer">
+    <div>
+        <strong>SecureSnap v2.0</strong> — offline media authenticity workbench.
+        All evidence stays on this machine.
+    </div>
+    <div class="footer-note">
+        Analytical findings are investigative leads. They do not, on their own,
+        establish authenticity or guilt.
+    </div>
+</footer>
+
+<div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+<script src="{{ url_for('static', filename='app.js') }}"></script>
+{% block scripts %}{% endblock %}
+</body>
+</html>

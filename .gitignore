@@ -2,6 +2,8 @@
 __pycache__/
 *.pyc
 .env
-uploads/*
-encrypted/*
-processed/*
+data/
+uploads/
+encrypted/
+processed/
+.pytest_cache/

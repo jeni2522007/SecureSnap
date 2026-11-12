@@ -1,0 +1,128 @@
+{% extends "base.html" %}
+{% block title %}Analyse{% endblock %}
+
+{% block content %}
+
+<div class="page-head">
+    <h1>Forensic analysis</h1>
+    <p>
+        Submit a file for examination. The original is preserved unaltered, sealed
+        against later tampering, and run through the full authenticity pipeline.
+    </p>
+</div>
+
+<div class="grid grid-side">
+
+    <!-- ============ Submission panel ============ -->
+    <div class="card">
+        <div class="card-head"><h2>Submission</h2></div>
+        <div class="card-body">
+
+            <div class="dropzone" id="dropzone">
+                <div class="dz-icon">&#128193;</div>
+                <h3>Drop a file here</h3>
+                <p>Images and video stills, up to 25 MB</p>
+                <p style="margin-top:14px">
+                    <input type="file" id="fileInput"
+                           accept=".jpg,.jpeg,.png,.webp,.gif,.bmp,.tif,.tiff,.heic,.avif,.mp4,.mov,.mkv,.avi,.mp3,.wav,.pdf">
+                </p>
+            </div>
+
+            <div class="filelist" id="filelist"></div>
+
+            <div id="statusLine" class="status-line"></div>
+            <div class="progress-track" id="progressTrack" style="display:none">
+                <div class="progress-fill" id="progressFill"></div>
+            </div>
+
+            <hr style="border:none; border-top:1px solid var(--line-soft); margin:22px 0">
+
+            <h3 class="section-title">Register as evidence</h3>
+
+            <label class="checkbox">
+                <input type="checkbox" id="saveEvidence">
+                <span>Add this file to the evidence register with the details below</span>
+            </label>
+
+            <div id="registerFields" style="display:none">
+                <div class="grid grid-2">
+                    <label class="field">
+                        <span class="field-label">Case reference *</span>
+                        <input type="text" id="caseRef" placeholder="e.g. FIR 2026/0412">
+                    </label>
+                    <label class="field">
+                        <span class="field-label">Exhibit reference</span>
+                        <input type="text" id="exhibitRef" placeholder="e.g. A/1">
+                    </label>
+                </div>
+
+                <label class="field">
+                    <span class="field-label">Description of the item</span>
+                    <input type="text" id="title" placeholder="e.g. Screenshot from seized handset">
+                </label>
+
+                <label class="field">
+                    <span class="field-label">Narrative / circumstances</span>
+                    <textarea id="description" rows="3"
+                              placeholder="How, when and by whom this item was seized"></textarea>
+                </label>
+
+                <div class="grid grid-2">
+                    <label class="field">
+                        <span class="field-label">Source / seized from</span>
+                        <input type="text" id="source" placeholder="e.g. Mobile phone of accused">
+                    </label>
+                    <label class="field">
+                        <span class="field-label">Collected by</span>
+                        <input type="text" id="collectedBy" placeholder="e.g. HC/1234">
+                    </label>
+                </div>
+            </div>
+
+            <div class="btn-row" style="margin-top:18px">
+                <button class="btn btn-primary" id="analyzeBtn">Run examination</button>
+                <button class="btn btn-ghost" id="resetBtn">Reset</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ============ Results panel ============ -->
+    <div id="results" style="display:none; grid-column: 1 / -1">
+
+        <div class="card">
+            <div class="card-head">
+                <h2>Examination result</h2>
+                <div class="btn-row">
+                    <a class="btn btn-ghost btn-sm" id="downloadJsonBtn" style="display:none">Export JSON</a>
+                    <button class="btn btn-accent btn-sm" id="reportBtn" style="display:none">Open report</button>
+                </div>
+            </div>
+
+            <div id="verdictHolder"></div>
+
+            <div class="tabs">
+                <button class="tab active" data-target="tab-overview">Overview</button>
+                <button class="tab" data-target="tab-findings">Findings</button>
+                <button class="tab" data-target="tab-metadata">Metadata</button>
+                <button class="tab" data-target="tab-pixels">Pixel analysis</button>
+                <button class="tab" data-target="tab-hidden">Hidden data</button>
+                <button class="tab" data-target="tab-content">Content</button>
+                <button class="tab" data-target="tab-rules">Policy rules</button>
+                <button class="tab" data-target="tab-fingerprint">Fingerprint</button>
+            </div>
+
+            <div class="tab-panel active" id="tab-overview"></div>
+            <div class="tab-panel" id="tab-findings"></div>
+            <div class="tab-panel" id="tab-metadata"></div>
+            <div class="tab-panel" id="tab-pixels"></div>
+            <div class="tab-panel" id="tab-hidden"></div>
+            <div class="tab-panel" id="tab-content"></div>
+            <div class="tab-panel" id="tab-rules"></div>
+            <div class="tab-panel" id="tab-fingerprint"></div>
+        </div>
+    </div>
+
+</div>
+
+<script src="{{ url_for('static', filename='analyze.js') }}"></script>
+{% endblock %}

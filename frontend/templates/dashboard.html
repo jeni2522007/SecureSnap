@@ -1,0 +1,167 @@
+{% extends "base.html" %}
+{% block title %}Dashboard{% endblock %}
+
+{% block content %}
+
+<div class="page-head">
+    <h1>Examination dashboard</h1>
+    <p>
+        SecureSnap examines images and video stills placed in evidence. Every file is
+        fingerprinted, its embedded metadata is read and cross-checked, and seven
+        independent manipulation tests are run against it. Nothing leaves this
+        workstation.
+    </p>
+</div>
+
+<div class="grid grid-4" style="margin-bottom:22px">
+    <div class="stat">
+        <div class="stat-label">Evidence items</div>
+        <div class="stat-value" id="stat-total">-</div>
+        <div class="stat-hint">Registered on this workstation</div>
+    </div>
+    <div class="stat gold">
+        <div class="stat-label">Open cases</div>
+        <div class="stat-value" id="stat-cases">-</div>
+        <div class="stat-hint">Distinct case references</div>
+    </div>
+    <div class="stat warn">
+        <div class="stat-label">Flagged for review</div>
+        <div class="stat-value" id="stat-flagged">-</div>
+        <div class="stat-hint">Risk score of 35 or above</div>
+    </div>
+    <div class="stat good">
+        <div class="stat-label">Average risk</div>
+        <div class="stat-value" id="stat-average">-</div>
+        <div class="stat-hint">Across all registered items</div>
+    </div>
+</div>
+
+<div class="grid grid-side">
+    <div class="card">
+        <div class="card-head">
+            <h2>Recent examinations</h2>
+            <a class="btn btn-ghost btn-sm" href="/evidence">Open the register</a>
+        </div>
+        <div class="card-body tight">
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Case</th>
+                            <th>Item</th>
+                            <th>Verdict</th>
+                            <th>Risk</th>
+                            <th>Registered</th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody id="recent-body">
+                        <tr><td colspan="6" style="color:var(--ink-faint)">Loading…</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <div style="display:grid; gap:18px">
+        <div class="card">
+            <div class="card-head"><h3>Start an examination</h3></div>
+            <div class="card-body">
+                <p style="margin:0 0 16px; font-size:13.5px; color:var(--ink-soft)">
+                    Run the full forensic pipeline over a file. The original is never
+                    modified &mdash; it is fingerprinted, sealed and analysed in place.
+                </p>
+                <div class="btn-row">
+                    <a class="btn btn-primary" href="/analyze">Analyse a file</a>
+                    <a class="btn btn-ghost" href="/compare">Compare two files</a>
+                </div>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-head"><h3>What is checked</h3></div>
+            <div class="card-body">
+                <dl class="dl">
+                    <div class="dl-row"><dt>File identity</dt><dd>Magic bytes vs extension</dd></div>
+                    <div class="dl-row"><dt>Metadata</dt><dd>EXIF / XMP contradictions</dd></div>
+                    <div class="dl-row"><dt>Compression</dt><dd>Error level analysis</dd></div>
+                    <div class="dl-row"><dt>Duplication</dt><dd>Copy-move detection</dd></div>
+                    <div class="dl-row"><dt>Noise</dt><dd>Splice boundary search</dd></div>
+                    <div class="dl-row"><dt>Resampling</dt><dd>Upscaling detection</dd></div>
+                    <div class="dl-row"><dt>Hidden data</dt><dd>LSB &amp; payload analysis</dd></div>
+                    <div class="dl-row"><dt>Content</dt><dd>Classification &amp; cross-check</dd></div>
+                </dl>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-head"><h3>Integrity</h3></div>
+            <div class="card-body">
+                <p style="margin:0 0 14px; font-size:13px; color:var(--ink-soft)">
+                    Each registered item is sealed with AES-128-CBC under an
+                    HMAC-SHA256 tag. Re-verification decrypts the sealed copy and
+                    compares it against the fingerprints taken at intake.
+                </p>
+                <a class="btn btn-ghost btn-sm" href="/evidence">Verify an item</a>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+document.addEventListener("DOMContentLoaded", async () => {
+    try {
+        const data = await SS.request("/api/evidence/stats");
+
+        document.getElementById("stat-total").textContent = data.stats.total_evidence;
+        document.getElementById("stat-cases").textContent = data.stats.cases;
+        document.getElementById("stat-flagged").textContent = data.stats.flagged;
+        document.getElementById("stat-average").textContent = data.stats.average_risk;
+
+        const body = SS.clear(document.getElementById("recent-body"));
+
+        if (!data.recent.length) {
+            const row = body.insertRow();
+            const cell = row.insertCell();
+            cell.colSpan = 6;
+            cell.style.color = "var(--ink-faint)";
+            cell.textContent = "No evidence has been registered yet.";
+            return;
+        }
+
+        data.recent.forEach((item) => {
+            const row = body.insertRow();
+
+            row.insertCell().innerHTML =
+                `<span class="mono">${SS.escape(item.case_ref)}</span>`;
+
+            row.insertCell().textContent = item.title;
+
+            const verdict = row.insertCell();
+            const score = item.risk_score || 0;
+            const badge = SS.badge(
+                score >= 60 ? "High risk" : score >= 35 ? "Review" : "Low risk",
+                score >= 60 ? "critical" : score >= 35 ? "medium" : "good"
+            );
+            verdict.appendChild(badge);
+
+            const risk = row.insertCell();
+            risk.className = "tnum";
+            risk.textContent = score;
+
+            const when = row.insertCell();
+            when.className = "nowrap";
+            when.textContent = SS.dateTime(item.created_at);
+
+            const action = row.insertCell();
+            const link = SS.el("a", "btn btn-ghost btn-sm", "Open");
+            link.href = "/evidence/" + item.id;
+            action.appendChild(link);
+        });
+    } catch (error) {
+        SS.toast(error.message, "error");
+    }
+});
+</script>
+
+{% endblock %}

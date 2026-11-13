@@ -8,6 +8,8 @@ from modules.rule_service import load_rules, run_rules
 
 rules_bp = Blueprint("rules", __name__)
 
+ALLOWED_SEVERITIES = ("LOW", "MEDIUM", "HIGH", "CRITICAL", "INFO")
+
 
 @rules_bp.route("/api/rules")
 def list_rules():
@@ -48,7 +50,7 @@ def create_rule():
             "error": f"The condition could not be parsed: {validation['error']}",
         }), 400
 
-    if severity not in ("LOW", "MEDIUM", "HIGH", "CRITICAL", "INFO"):
+    if severity not in ALLOWED_SEVERITIES:
         return jsonify({"error": f"Unknown severity '{severity}'"}), 400
 
     now = utc_now()
@@ -96,8 +98,11 @@ def update_rule(rule_id):
     condition = (payload.get("condition") or row["condition"]).strip()
     action = (payload.get("action") or row["action"]).strip()
     severity = (payload.get("severity") or row["severity"]).strip().upper()
-    description = payload.get("description", row["description"]) or ""
+    description = (payload.get("description", row["description"]) or "").strip()
     enabled = payload.get("enabled", bool(row["enabled"]))
+
+    if severity not in ALLOWED_SEVERITIES:
+        return jsonify({"error": f"Unknown severity '{severity}'"}), 400
 
     validation = validate_rule(condition)
     if not validation["valid"]:

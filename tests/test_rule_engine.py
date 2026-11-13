@@ -83,6 +83,10 @@ class TestParser(unittest.TestCase):
         self.assertEqual(expression.operator, "OR")
         self.assertEqual(expression.left.operator, "AND")
 
+    def test_bare_exists_check_is_not_wrapped_in_a_truthiness_test(self):
+        expression = parse_expression("metadata.gps.latitude EXISTS")
+        self.assertEqual(expression.describe(), "metadata.gps.latitude EXISTS")
+
 
 class TestEvaluator(unittest.TestCase):
 
@@ -160,6 +164,13 @@ class TestValidation(unittest.TestCase):
         outcome = validate_rule("metadata.available ==")
         self.assertFalse(outcome["valid"])
         self.assertIsNotNone(outcome["error"])
+
+    def test_valid_condition_reports_a_readable_description(self):
+        outcome = validate_rule("metadata.gps.latitude EXISTS")
+        self.assertTrue(outcome["valid"])
+        self.assertEqual(
+            outcome["parsed"]["condition"], "metadata.gps.latitude EXISTS"
+        )
 
 
 if __name__ == "__main__":

@@ -87,6 +87,14 @@ class TestPages(APITestCase):
     def test_rules_page_renders(self):
         self.assertEqual(self.client.get("/rules").status_code, 200)
 
+    def test_rules_page_loads_its_javascript_from_a_same_origin_file(self):
+        response = self.client.get("/rules")
+        html = response.get_data(as_text=True)
+
+        self.assertIn("/static/rules.js", html)
+        self.assertNotIn("<script>", html)
+        self.assertNotIn("DOMContentLoaded", html)
+
 
 class TestAnalysis(APITestCase):
 
@@ -288,6 +296,103 @@ class TestRuleManagement(APITestCase):
         response = self.client.post(f"/api/rules/{rule_id}/toggle",
                                       headers=self._headers())
         self.assertEqual(response.status_code, 200)
+
+    def _create_rule(self, name, **overrides):
+        payload = {
+            "name": name,
+            "condition": "ela.hot_block_ratio > 0.5",
+            "action": "ESCALATE_TEST",
+            "severity": "HIGH",
+            "description": "A rule used by the test suite.",
+        }
+        payload.update(overrides)
+        return self.client.post(
+            "/api/rules", headers=self._headers(), json=payload
+        )
+
+    def _find_rule(self, name):
+        rules = self.client.get("/api/rules").json["rules"]
+        return next((rule for rule in rules if rule["name"] == name), None)
+
+    def test_rule_creation_is_persisted(self):
+        response = self._create_rule("PersistedRule")
+        self.assertEqual(response.status_code, 201)
+
+        stored = self._find_rule("PersistedRule")
+        self.assertIsNotNone(stored)
+        self.assertEqual(stored["condition"], "ela.hot_block_ratio > 0.5")
+        self.assertEqual(stored["severity"], "HIGH")
+        self.assertEqual(stored["enabled"], 1)
+
+        self.client.delete(f"/api/rules/{stored['id']}", headers=self._headers())
+
+    def test_rule_update_is_persisted(self):
+        created = self._create_rule("EditableRule")
+        rule_id = created.json["rule"]["id"]
+
+        response = self.client.put(
+            f"/api/rules/{rule_id}",
+            headers=self._headers(),
+            json={
+                "name": "EditedRule",
+                "condition": "risk.score >= 80",
+                "action": "ESCALATE_SECOND_REVIEW",
+                "severity": "CRITICAL",
+                "description": "Updated by the test suite.",
+            },
+        )
+        self.assertEqual(response.status_code, 200)
+
+        stored = self._find_rule("EditedRule")
+        self.assertIsNotNone(stored)
+        self.assertEqual(stored["id"], rule_id)
+        self.assertEqual(stored["condition"], "risk.score >= 80")
+        self.assertEqual(stored["severity"], "CRITICAL")
+        self.assertEqual(stored["description"], "Updated by the test suite.")
+
+        self.client.delete(f"/api/rules/{rule_id}", headers=self._headers())
+
+    def test_rule_update_rejects_an_unknown_severity(self):
+        created = self._create_rule("SeverityGuard")
+        rule_id = created.json["rule"]["id"]
+
+        response = self.client.put(
+            f"/api/rules/{rule_id}",
+            headers=self._headers(),
+            json={"severity": "CATASTROPHIC"},
+        )
+        self.assertEqual(response.status_code, 400)
+
+        self.client.delete(f"/api/rules/{rule_id}", headers=self._headers())
+
+    def test_rule_deletion_is_persisted(self):
+        created = self._create_rule("DisposableRule")
+        rule_id = created.json["rule"]["id"]
+
+        response = self.client.delete(
+            f"/api/rules/{rule_id}", headers=self._headers()
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertIsNone(self._find_rule("DisposableRule"))
+
+    def test_invalid_condition_is_reported_by_the_validator(self):
+        response = self.client.post(
+            "/api/rules/validate",
+            headers=self._headers(),
+            json={"condition": "metadata.available =="},
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(response.json["valid"])
+        self.assertTrue(response.json["error"])
+
+    def test_empty_condition_is_refused_by_the_validator(self):
+        response = self.client.post(
+            "/api/rules/validate",
+            headers=self._headers(),
+            json={"condition": "   "},
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("error", response.json)
 
 
 class TestComparison(APITestCase):

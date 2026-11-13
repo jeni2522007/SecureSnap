@@ -11,7 +11,7 @@
 <div style="max-width:900px;margin:0 auto;padding:20px 16px;">
     <div class="btn-row no-print" style="margin-bottom:16px">
         <a class="btn btn-ghost" href="/evidence/{{ evidence_id }}">Back to the item</a>
-        <button class="btn btn-primary" onclick="window.print()">Print / save as PDF</button>
+        <button class="btn btn-primary" id="printBtn">Print / save as PDF</button>
         <a class="btn btn-ghost" href="/api/report/{{ evidence_id }}/json">Export JSON</a>
     </div>
 </div>
@@ -274,5 +274,6 @@
     {% endif %}
 </div>
 
+<script src="{{ url_for('static', filename='report.js') }}"></script>
 </body>
 </html>

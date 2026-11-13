@@ -223,6 +223,10 @@ class Parser:
 
         operator = self._current_operator()
         if operator is None:
+            if isinstance(left, ExistsOp):
+                # A bare existence check needs no truthiness wrapper, which
+                # keeps the description shown by the syntax checker clean.
+                return left
             # A bare operand is treated as a truthiness test.
             return Comparison("TRUTHY", left, Literal(True))
 

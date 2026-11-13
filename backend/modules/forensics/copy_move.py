@@ -54,8 +54,9 @@ def _block_hashes(blocks):
         )
         for index in range(blocks.shape[0]):
             transformed[index] = cv2.dct(
-                blocks[index].astype(np.float64), norm="ortho"
+                 blocks[index].astype(np.float64)
             )
+            
 
     low_frequency = transformed[:, :HASH_SIZE, :HASH_SIZE]
 

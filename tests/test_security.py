@@ -183,6 +183,17 @@ class TestSecurityHeaders(SecurityTestCase):
         self.assertIn("frame-ancestors 'none'", response.headers["Content-Security-Policy"])
         self.assertEqual(response.headers["Referrer-Policy"], "no-referrer")
 
+    def test_script_sources_are_restricted_to_the_same_origin(self):
+        csp = self.client.get("/").headers["Content-Security-Policy"]
+        directives = {
+            directive.split()[0]: directive
+            for directive in (part.strip() for part in csp.split(";"))
+            if directive
+        }
+
+        self.assertEqual(directives.get("script-src"), "script-src 'self'")
+        self.assertNotIn("unsafe-inline", directives.get("script-src", ""))
+
     def test_the_session_cookie_is_not_readable_by_script(self):
         # A fresh client is used because the cookie is only issued when the
         # session first changes.

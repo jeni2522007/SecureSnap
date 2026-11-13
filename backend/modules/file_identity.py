@@ -212,8 +212,8 @@ def analyse_entropy(file_path):
         head = handle.read(65536)
         handle.seek(max(0, file_size - 65536))
         tail = handle.read(65536)
-
-    overall = shannon_entropy(open(file_path, "rb").read())
+    with open(file_path, "rb") as handle:
+        overall = shannon_entropy(handle.read())
     head_entropy = shannon_entropy(head)
     tail_entropy = shannon_entropy(tail)
 
